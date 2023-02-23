@@ -53,9 +53,31 @@ type
     basefh: FileStream
     dstfh: FileStream
 
-func `$`(ch: ChunkHash): string = "ChunkHash-" & $ch.uint32
+func `==`*(a, b: ChunkHash): bool {.borrow.}
+func `$`*(ch: ChunkHash): string = "ChunkHash-" & $ch.uint32
+func `%`*(ch: ChunkHash): JsonNode = newJInt(ch.uint32.int)
 proc `$`(cp: ChunkPatch): string =
   &"ChunkPatch(size={cp.data.len} @{cp.pos})"
+
+func `%`*(pchunk: ChunkPatch): JsonNode =
+  result = newJArray()
+  result.add newJInt(pchunk.pos)
+  result.add newJString(pchunk.data)
+func initFromJson*(dst: var ChunkPatch, jsonNode: JsonNode, jsonPath: var string) =
+  if jsonNode.kind != JArray:
+    raise newException(JsonKindError,
+      &"Incorrect JSON kind. Wanted '{JArray}' in '{jsonPath}' but got '{jsonNode.kind}'.")
+  dst = (jsonNode[0].getInt, jsonNode[1].getStr())
+
+func `%`*(footer: PatchFooter): JsonNode =
+  result = newJArray()
+  result.add newJInt(footer.size)
+  result.add %(footer.checksum)
+func initFromJson*(dst: var PatchFooter, jsonNode: JsonNode, jsonPath: var string) =
+  if jsonNode.kind != JArray:
+    raise newException(JsonKindError,
+      &"Incorrect JSON kind. Wanted '{JArray}' in '{jsonPath}' but got '{jsonNode.kind}'.")
+  dst = (jsonNode[0].getInt, jsonNode[1].getInt().ChunkHash)
 
 proc combine(a: PreChunkPatch, b: ChunkPatch, maxSize = MAX_CHUNKSIZE) {.raises: [CantCombine, ValueError].} =
   ## Try to combine 2 PreChunkPatches into one to make the number of patches
@@ -213,6 +235,12 @@ type
     patches*: seq[ChunkPatch]
     footer*: PatchFooter
 
+proc `==`*(a, b: ChecksumSet): bool =
+  a.chunksize == b.chunksize and a.hashes == b.hashes
+
+proc `==`*(a, b: PatchSet): bool =
+  a.chunksize == b.chunksize and a.patches == b.patches and a.footer == b.footer
+
 proc makeChecksumSet(filename: string, chunksize = DEFAULT_CHUNKSIZE): ChecksumSet =
   echo "makeChecksumSet ", $filename
   new(result)
@@ -317,6 +345,8 @@ test "oneshot":
     var cset = makeChecksumSet(base)
     check cset == jsonRoundtrip(cset)
     var pset = makePatchSet(goal, cset)
+    checkpoint "pset: " & $pset[]
+    checkpoint "json: " & $jsonRoundtrip(pset)[]
     check pset == jsonRoundtrip(pset)
     apply(base, pset, dst)
     check fileHash(goal) == fileHash(dst)
