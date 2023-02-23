@@ -6,11 +6,13 @@ jobs:
   tests:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         version:
           - binary:1.6.10
+          - 'nightly:https://github.com/buckets/nim-builder/releases/tag/20230222-040233-v1.6.10-pluspatches-00846ad6e6727369f16d54bd0a6a32ac7da72df4'
         os:
-          # - ubuntu-latest
+          - ubuntu-latest
           - macOS-latest
           - windows-latest
     steps:
