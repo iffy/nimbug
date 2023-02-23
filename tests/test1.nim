@@ -277,6 +277,64 @@ proc copyByPatch(goal, base, dst: string) =
   echo "\napplying patch set"
   apply(base, pset, dst)
 
+proc jsonRoundtrip[T](x: T): T =
+  let serialized = $(%*(x))
+  return serialized.parseJson.to(T)
+
+test "streaming":
+  withinTmpDir:
+    let goal = "goal.txt"
+    let base = "base.txt"
+    let dst = "dst.txt"
+    writeFile(goal, "a".repeat(10000))
+    writeFile(base, "a".repeat(1000) & "." & "a".repeat(7000))
+    var pm = newPatchMaker(goal)
+    var patches: seq[ChunkPatch]
+    for chunkhash in hashChunks(base):
+      check chunkhash == jsonRoundtrip(chunkhash)
+      let p = pm.computePatch(chunkhash)
+      if p.isSome:
+        patches.add(p.get())
+    patches.add(pm.remainingPatches.toSeq)
+    for p in patches:
+      check p == jsonRoundtrip(p)
+    let footer = pm.footer
+    check footer == jsonRoundtrip(footer)
+    var applier = newPatchApplier(base, dst)
+    for patch in patches:
+      applier.apply(patch)
+    applier.apply(footer)
+    check fileHash(goal) == fileHash(dst)
+    check getFileSize(dst) == 10000
+
+test "oneshot":
+  withinTmpDir:
+    let goal = "a.txt"
+    let base = "b.txt"
+    let dst = "d.txt"
+    writeFile(goal, "a".repeat(4500))
+    writeFile(base, "b".repeat(5000))
+    var cset = makeChecksumSet(base)
+    check cset == jsonRoundtrip(cset)
+    var pset = makePatchSet(goal, cset)
+    check pset == jsonRoundtrip(pset)
+    apply(base, pset, dst)
+    check fileHash(goal) == fileHash(dst)
+    check getFileSize(dst) == 4500
+
+test "checksum":
+  withinTmpDir:
+    let goal = "a.txt"
+    let base = "b.txt"
+    let dst = "d.txt"
+    writeFile(goal, "a".repeat(4500) & "b".repeat(5000))
+    writeFile(base, "a".repeat(4500) & "c".repeat(300))
+    var cset = makeChecksumSet(base)
+    var pset = makePatchSet(goal, cset)
+    writeFile(base, "y".repeat(4500) & "c".repeat(300))
+    expect PatchFailed:
+      apply(base, pset, dst)
+
 test "random grow":
   withinTmpDir:
     let goal = "goal.txt"
